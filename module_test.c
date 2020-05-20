@@ -59,7 +59,7 @@ int send_usrmsg(int *pbuf, uint16_t len)
 int gva2hpa(unsigned long gva, unsigned long hva, int pid){
 	struct task_struct *task;
 	struct mm_struct *mm;
-	unsigned long pa_gva, pa_hva, pa;
+	unsigned long pa_gva, pa_hva;
 	
 	pgd_t * gva_pgd, * hva_pgd;
 	pud_t * gva_pud, * hva_pud;
@@ -134,24 +134,89 @@ int gva2hpa(unsigned long gva, unsigned long hva, int pid){
 	return 1;
 }
 
+int espt_update(int len, unsigned long *list, int pid){
+	struct task_struct *task;
+	struct mm_struct *mm;
+	unsigned long gva;
+	int i;
+
+	pgd_t * gva_pgd;
+	pud_t * gva_pud;
+	pmd_t * gva_pmd;
+	pte_t * gva_pte;
+
+	custom_pgd_alloc my_pgd_alloc;
+	custom_pud_alloc my_pud_alloc;
+	custom_pmd_alloc my_pmd_alloc;
+	custom_pte_alloc my_pte_alloc;
+	custom_flush_tlb_all my_flush_tlb_all;
+
+	my_pgd_alloc = (custom_pgd_alloc)kallsyms_lookup_name("pgd_alloc");
+	my_pud_alloc = (custom_pud_alloc)kallsyms_lookup_name("__pud_alloc");
+	my_pmd_alloc = (custom_pmd_alloc)kallsyms_lookup_name("__pmd_alloc");
+	my_pte_alloc = (custom_pte_alloc)kallsyms_lookup_name("__pte_alloc");
+	my_flush_tlb_all = (custom_flush_tlb_all)kallsyms_lookup_name("flush_tlb_all");
+
+	task = get_pid_task(find_get_pid(pid),PIDTYPE_PID);
+	mm = task->mm;
+	for(i = 0; i < len; i++){
+		gva = list[i];
+		printk("gva: %0lx\n", gva);
+		gva_pgd = pgd_offset(mm, gva);
+		if(!my_pud_alloc(mm, &__p4d(pgd_val(*gva_pgd)), gva)){
+			if(!(pgd_flags(*(gva_pgd)) & _PAGE_PRESENT)){
+				printk("pgd Not Present !\n");
+				printk("GVA PGD Good: %lx\n", pgd_val(*gva_pgd));
+				pgd_t * tmp = (pgd_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
+				set_pgd(gva_pgd, __pgd(_PAGE_TABLE | __pa(tmp)));
+			}
+			gva_pud = pud_offset(&__p4d(pgd_val(*gva_pgd)), gva);
+			if(!my_pmd_alloc(mm, gva_pud, gva));{
+				gva_pmd = pmd_offset(gva_pud, gva);
+				if(!my_pte_alloc(mm, gva_pmd)){
+					gva_pte = pte_offset_kernel(gva_pmd, gva);	
+					set_pte(gva_pte, __pte(0));
+					printk("GVA PTE Good: %lx\n", pte_val(*gva_pte));
+				}			
+			}
+		}
+	}
+	my_flush_tlb_all();
+
+	return 1;
+}
+
 static void netlink_rcv_msg(struct sk_buff *skb)
 {
     struct nlmsghdr *nlh = NULL;
-    int pid, result = 0;
-	unsigned long gva = 0xFFFFFFFFFFFF, hva = 0xFFFFFFFFFFFF;
-
+    int result = 0, msg_len = 0;
+	int type, pid, gva_list_len;
+	unsigned long gva, hva;
+	unsigned long *gva_list;
     if(skb->len >= nlmsg_total_size(0))
     {
         nlh = nlmsg_hdr(skb);
-        gva = *(unsigned long *)NLMSG_DATA(nlh);
-		hva = *(unsigned long *)(NLMSG_DATA(nlh) + sizeof(unsigned long));
-		pid = *(int *)(NLMSG_DATA(nlh) + 2 * sizeof(unsigned long));
-		if(gva != 0xFFFFFFFFFFFF && hva != 0xFFFFFFFFFFFF){
-		    printk("kernel recv gva from user: %0lx\n", gva);
+        type = *(int *)NLMSG_DATA(nlh); msg_len += sizeof(int);
+		if(type == 1){
+			gva = *(unsigned long *)(NLMSG_DATA(nlh) + msg_len); msg_len += sizeof(unsigned long);
+			hva = *(unsigned long *)(NLMSG_DATA(nlh) + msg_len); msg_len += sizeof(unsigned long);
+			pid = *(int *)(NLMSG_DATA(nlh) + msg_len);
+			printk("kernel recv gva from user: %0lx\n", gva);
 			printk("kernel recv hva from user: %0lx\n", hva);
 			printk("kernel recv pid from user: %d\n", pid);
 			result = gva2hpa(gva, hva, pid);
 		    send_usrmsg(&result, sizeof(result));
+		}
+		else{
+			pid = *(int *)(NLMSG_DATA(nlh) + msg_len); msg_len += sizeof(int);
+			gva_list_len = *(int *)(NLMSG_DATA(nlh) + msg_len); msg_len += sizeof(int);
+			gva_list = kmalloc(sizeof(unsigned long) * gva_list_len, GFP_KERNEL);
+			memcpy(gva_list, (NLMSG_DATA(nlh) + msg_len), sizeof(unsigned long) * gva_list_len);
+			printk("kernel recv len from user: %d\n", gva_list_len);
+			printk("kernel recv pid from user: %d\n", pid);
+			result = espt_update(gva_list_len, gva_list, pid);
+			send_usrmsg(&result, sizeof(result));
+			kfree(gva_list);
 		}
     }
 }
