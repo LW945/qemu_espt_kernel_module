@@ -89,14 +89,14 @@ int gva2hpa(unsigned long gva, unsigned long hva, int pid){
 			if(!my_pte_alloc(mm, hva_pmd)){
 				hva_pte = pte_offset_kernel(hva_pmd, hva);
 				if(!pte_present(*hva_pte)){
-					printk("PTE Not Present !\n");
+					//printk("PTE Not Present !\n");
 					pte_t * tmp = (pte_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
 					set_pte(hva_pte, __pte(_PAGE_TABLE | __pa(tmp)));
 				}
-				//printk("HVA PGD Good: %lx\n", pgd_val(*hva_pgd));
-				//printk("HVA PUD Good: %lx\n", pud_val(*hva_pud));
-				//printk("HVA PMD Good: %lx\n", pmd_val(*hva_pmd));
-				printk("HVA PTE Good: %lx\n", pte_val(*hva_pte));						
+				/*printk("HVA PGD Good: %lx\n", pgd_val(*hva_pgd));
+				printk("HVA PUD Good: %lx\n", pud_val(*hva_pud));
+				printk("HVA PMD Good: %lx\n", pmd_val(*hva_pmd));
+				printk("HVA PTE Good: %lx\n", pte_val(*hva_pte));*/						
 			}			
 		}
 	}
@@ -104,8 +104,8 @@ int gva2hpa(unsigned long gva, unsigned long hva, int pid){
 	gva_pgd = pgd_offset(mm, gva);
 	if(!my_pud_alloc(mm, &__p4d(pgd_val(*gva_pgd)), gva)){
 		if(!(pgd_flags(*(gva_pgd)) & _PAGE_PRESENT)){
-			printk("pgd Not Present !\n");
-			printk("GVA PGD Good: %lx\n", pgd_val(*gva_pgd));
+			/*printk("pgd Not Present !\n");
+			printk("GVA PGD Good: %lx\n", pgd_val(*gva_pgd));*/
 			pgd_t * tmp = (pgd_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
 			set_pgd(gva_pgd, __pgd(_PAGE_TABLE | __pa(tmp)));
 		}
@@ -114,17 +114,17 @@ int gva2hpa(unsigned long gva, unsigned long hva, int pid){
 			gva_pmd = pmd_offset(gva_pud, gva);
 			if(!my_pte_alloc(mm, gva_pmd)){
 				gva_pte = pte_offset_kernel(gva_pmd, gva);
-				//printk("CR3 Good: %lx\n", pgd_val(*(mm->pgd)));
-				//printk("GVA PGD Good: %lx\n", pgd_val(*gva_pgd));
-				//printk("GVA PUD Good: %lx\n", pud_val(*gva_pud));
-				//printk("GVA PMD Good: %lx\n", pmd_val(*gva_pmd));
-				printk("GVA PTE Good: %lx\n", pte_val(*gva_pte));
+				/*printk("CR3 Good: %lx\n", pgd_val(*(mm->pgd)));
+				printk("GVA PGD Good: %lx\n", pgd_val(*gva_pgd));
+				printk("GVA PUD Good: %lx\n", pud_val(*gva_pud));
+				printk("GVA PMD Good: %lx\n", pmd_val(*gva_pmd));
+				printk("GVA PTE Good: %lx\n", pte_val(*gva_pte));*/
 				pa_gva = (pte_pfn(*gva_pte) << PAGE_SHIFT) | (gva & ~PAGE_MASK);
 				pa_hva = (pte_pfn(*hva_pte) << PAGE_SHIFT) | (hva & ~PAGE_MASK);	
 				if(pa_gva != pa_hva){
 					set_pte(gva_pte, *hva_pte);
-					//printk("GVA Address: %lx\n", pa_gva);
-					//printk("HVA Address: %lx\n", pa_hva);	
+					/*printk("GVA Address: %lx\n", pa_gva);
+					printk("HVA Address: %lx\n", pa_hva);*/	
 					smp_wmb();
 				}
 			}			
@@ -161,12 +161,12 @@ int espt_update(int len, unsigned long *list, int pid){
 	mm = task->mm;
 	for(i = 0; i < len; i++){
 		gva = list[i];
-		printk("gva: %0lx\n", gva);
+		//printk("gva: %0lx\n", gva);
 		gva_pgd = pgd_offset(mm, gva);
 		if(!my_pud_alloc(mm, &__p4d(pgd_val(*gva_pgd)), gva)){
 			if(!(pgd_flags(*(gva_pgd)) & _PAGE_PRESENT)){
-				printk("pgd Not Present !\n");
-				printk("GVA PGD Good: %lx\n", pgd_val(*gva_pgd));
+				//printk("pgd Not Present !\n");
+				//printk("GVA PGD Good: %lx\n", pgd_val(*gva_pgd));
 				pgd_t * tmp = (pgd_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
 				set_pgd(gva_pgd, __pgd(_PAGE_TABLE | __pa(tmp)));
 			}
@@ -176,7 +176,7 @@ int espt_update(int len, unsigned long *list, int pid){
 				if(!my_pte_alloc(mm, gva_pmd)){
 					gva_pte = pte_offset_kernel(gva_pmd, gva);	
 					set_pte(gva_pte, __pte(0));
-					printk("GVA PTE Good: %lx\n", pte_val(*gva_pte));
+					//printk("GVA PTE Good: %lx\n", pte_val(*gva_pte));
 				}			
 			}
 		}
@@ -201,9 +201,9 @@ static void netlink_rcv_msg(struct sk_buff *skb)
 			gva = *(unsigned long *)(NLMSG_DATA(nlh) + msg_len); msg_len += sizeof(unsigned long);
 			hva = *(unsigned long *)(NLMSG_DATA(nlh) + msg_len); msg_len += sizeof(unsigned long);
 			pid = *(int *)(NLMSG_DATA(nlh) + msg_len);
-			printk("kernel recv gva from user: %0lx\n", gva);
-			printk("kernel recv hva from user: %0lx\n", hva);
-			printk("kernel recv pid from user: %d\n", pid);
+			//printk("kernel recv gva from user: %0lx\n", gva);
+			//printk("kernel recv hva from user: %0lx\n", hva);
+			//printk("kernel recv pid from user: %d\n", pid);
 			result = gva2hpa(gva, hva, pid);
 		    send_usrmsg(&result, sizeof(result));
 		}
@@ -212,8 +212,8 @@ static void netlink_rcv_msg(struct sk_buff *skb)
 			gva_list_len = *(int *)(NLMSG_DATA(nlh) + msg_len); msg_len += sizeof(int);
 			gva_list = kmalloc(sizeof(unsigned long) * gva_list_len, GFP_KERNEL);
 			memcpy(gva_list, (NLMSG_DATA(nlh) + msg_len), sizeof(unsigned long) * gva_list_len);
-			printk("kernel recv len from user: %d\n", gva_list_len);
-			printk("kernel recv pid from user: %d\n", pid);
+			/*printk("kernel recv len from user: %d\n", gva_list_len);
+			printk("kernel recv pid from user: %d\n", pid);*/
 			result = espt_update(gva_list_len, gva_list, pid);
 			send_usrmsg(&result, sizeof(result));
 			kfree(gva_list);
