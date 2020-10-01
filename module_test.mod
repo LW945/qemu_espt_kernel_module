@@ -1,2 +1,2 @@
-/home/li/software/espt/module_test.o
+/home/ubuntu/qemu_espt_kernel_module/module_test.o
 
