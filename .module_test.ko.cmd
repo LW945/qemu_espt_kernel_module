@@ -1,0 +1,1 @@
+cmd_/home/li/software/espt/module_test.ko := ld -r -m elf_x86_64 -z max-page-size=0x200000 -T ./scripts/module-common.lds --build-id  -o /home/li/software/espt/module_test.ko /home/li/software/espt/module_test.o /home/li/software/espt/module_test.mod.o ;  true

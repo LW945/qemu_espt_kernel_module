@@ -77,6 +77,8 @@ static int espt_dev_ioctl_set_entry(struct ESPTEntry espt_entry)
 	gva = espt_entry.set_entry.gva;
 	hva = espt_entry.set_entry.hva;
 
+	printk("espt_dev_ioctl_set_entry!, gva: %llx, hva: %llx\n", gva, hva);
+
 	hva_pgd = pgd_offset(mm, hva);
 	if(!my_pud_alloc(mm, &__p4d(pgd_val(*hva_pgd)), hva)){		
 		hva_pud = pud_offset(&__p4d(pgd_val(*hva_pgd)), hva);
@@ -118,6 +120,8 @@ static int espt_dev_ioctl_flush_entry(struct ESPTEntry espt_entry)
 	int len = espt_entry.flush_entry.size;
 	uint64_t *list = espt_entry.flush_entry.list;
 
+	printk("espt_dev_ioctl_flush_entry!, len: %d\n", len);
+
 	for(i = 0; i < len; i++){
 		gva = list[i];
 		gva_pgd = pgd_offset(mm, gva);
@@ -144,6 +148,8 @@ static int espt_dev_ioctl_mmio_entry(struct ESPTEntry espt_entry)
 	int add = espt_entry.mmio_entry.add;
 	uint64_t value = espt_entry.mmio_entry.val;
 	gva = espt_entry.mmio_entry.gva;
+
+	printk("espt_dev_ioctl_mmio_entry!, add: %d, value: %lld, gva: %llx\n", add, value, gva);
 
 	gva_pgd = pgd_offset(mm, gva);
 	if(!my_pud_alloc(mm, &__p4d(pgd_val(*gva_pgd)), gva)){
@@ -173,31 +179,32 @@ static int espt_dev_ioctl_mmio_entry(struct ESPTEntry espt_entry)
 static long espt_dev_ioctl(struct file *filp,
 			  unsigned int ioctl, unsigned long arg)
 {
+	printk("espt_dev_ioctl! %ld\n", ioctl);
 	int r = -EINVAL;
 
 	switch (ioctl) {
 	case ESPT_SET_ENTRY:{
 		struct ESPTEntry espt_set_entry;
 		r = -EFAULT;
-			if (copy_from_user(&espt_set_entry, (void *)arg, sizeof(struct ESPTEntry)))
-				goto out;
-			r = espt_dev_ioctl_set_entry(espt_set_entry);
-			if(r)
-				goto out;
-			break;
+		if (copy_from_user(&espt_set_entry, (void *)arg, sizeof(struct ESPTEntry)))
+			goto out;
+		r = espt_dev_ioctl_set_entry(espt_set_entry);
+		if(r)
+			goto out;
+		break;
 	}
 	case ESPT_FLUSH_ENTRY:{
 		struct ESPTEntry espt_flush_entry;
 		uint64_t *addr_list;
 		r = -EFAULT;
-			if (copy_from_user(&espt_flush_entry, (void *)arg, sizeof(struct ESPTEntry)))
-				goto out;
-			if (copy_from_user(addr_list, espt_flush_entry.flush_entry.list, espt_flush_entry.flush_entry.size * sizeof(uint64_t)))
-				goto out;
-			r = espt_dev_ioctl_flush_entry(espt_flush_entry);
-			if(r)
-				goto out;
-			break;
+		if (copy_from_user(&espt_flush_entry, (void *)arg, sizeof(struct ESPTEntry)))
+			goto out;
+		if (copy_from_user(addr_list, espt_flush_entry.flush_entry.list, espt_flush_entry.flush_entry.size * sizeof(uint64_t)))
+			goto out;
+		r = espt_dev_ioctl_flush_entry(espt_flush_entry);
+		if(r)
+			goto out;
+		break;
 	}
 	case ESPT_INIT:{
 		int pid_value;	
