@@ -903,6 +903,15 @@ deps_/home/li/software/espt/module_test.o := \
     $(wildcard include/config/pci/domains.h) \
   include/linux/pm_wakeup.h \
   include/linux/file.h \
+  include/linux/slab.h \
+    $(wildcard include/config/debug/slab.h) \
+    $(wildcard include/config/failslab.h) \
+    $(wildcard include/config/have/hardened/usercopy/allocator.h) \
+    $(wildcard include/config/slab.h) \
+    $(wildcard include/config/slub.h) \
+  include/linux/kmemleak.h \
+    $(wildcard include/config/debug/kmemleak.h) \
+  include/linux/kasan.h \
   arch/x86/include/asm/pgalloc.h \
   include/linux/pagemap.h \
   include/linux/highmem.h \
