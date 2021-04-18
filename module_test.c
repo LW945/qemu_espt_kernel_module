@@ -102,7 +102,6 @@ static int espt_dev_ioctl_set_entry(struct ESPTEntry espt_entry)
 				if(!pte_present(*hva_pte)){
 					pte_t * tmp = (pte_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
 					set_pte(hva_pte, __pte(_PAGE_TABLE | __pa(tmp)));
-					smp_mb();
 				}						
 			}			
 		}
@@ -123,7 +122,6 @@ static int espt_dev_ioctl_set_entry(struct ESPTEntry espt_entry)
 				pa_hva = (pte_pfn(*hva_pte) << PAGE_SHIFT) | (hva & ~PAGE_MASK);
 				printk("hva_value: %llx\n", *(uint64_t *)__va(pa_hva));	
 				set_pte(gva_pte, *hva_pte);
-				smp_mb();
 			}			
 		}
 	}
@@ -164,7 +162,6 @@ static int espt_dev_ioctl_flush_entry(struct ESPTEntry espt_entry)
 					printk("pte \n");
 					gva_pte = pte_offset_kernel(gva_pmd, gva);	
 					set_pte(gva_pte, __pte(0));
-					smp_mb();
 					printk("pte: %llx\n", gva_pte->pte);
 				}			
 			}
@@ -198,11 +195,9 @@ static int espt_dev_ioctl_mmio_entry(struct ESPTEntry espt_entry)
 					pte_t * tmp = (pte_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
 					set_pte(gva_pte, __pte(_PAGE_TABLE | __pa(tmp)));
 					*(uint64_t *)tmp = value;	
-					smp_mb();			
 				}
 				else{
 					set_pte(gva_pte, __pte(0));					
-					smp_mb();			
 				}
 			}			
 		}
@@ -214,8 +209,6 @@ static int espt_dev_ioctl_mmio_entry(struct ESPTEntry espt_entry)
 
 static int espt_dev_ioctl_print_entry(struct ESPTEntry espt_entry)
 {
-	int add = espt_entry.mmio_entry.add;
-	uint64_t value = espt_entry.mmio_entry.val;
 	gva = espt_entry.mmio_entry.gva;
 
 	printk("espt_dev_ioctl_print_entry!, gva: %llx\n", gva);
