@@ -1,5 +1,5 @@
 obj-m += module_test.o
-SYMBOLA=/lib/modules/4.15.0-107-generic/build/Module.symvers
+SYMBOLA=/lib/modules/4.15.0-128-generic/build/Module.symvers
 KBUILD_EXTRA_SYMBOLS= $(SYMBOLA)
 
 all:

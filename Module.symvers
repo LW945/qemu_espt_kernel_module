@@ -5327,6 +5327,7 @@
 0x00000000	ufshcd_map_desc_id_to_length	drivers/scsi/ufs/ufshcd	EXPORT_SYMBOL
 0x00000000	spmi_ext_register_read	drivers/spmi/spmi	EXPORT_SYMBOL_GPL
 0x00000000	visorchannel_signalinsert	drivers/staging/unisys/visorbus/visorbus	EXPORT_SYMBOL_GPL
+0x00000000	config_ep_by_speed_and_alt	drivers/usb/gadget/libcomposite	EXPORT_SYMBOL_GPL
 0x00000000	nf_send_unreach	net/ipv4/netfilter/nf_reject_ipv4	EXPORT_SYMBOL_GPL
 0x00000000	nf_ct_ext_add	net/netfilter/nf_conntrack	EXPORT_SYMBOL
 0x00000000	nf_nat_ftp_hook	net/netfilter/nf_conntrack_ftp	EXPORT_SYMBOL_GPL
