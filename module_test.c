@@ -11,13 +11,13 @@
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("netlink example");
 
-#define ESPTIO 0xAF
+#define SOFTEPTIO 0xAF
 
-#define ESPT_INIT _IOR(ESPTIO, 0x1, int)
-#define ESPT_SET_ENTRY _IOR(ESPTIO, 0x2, struct ESPTEntry)
-#define ESPT_FLUSH_ENTRY _IOR(ESPTIO, 0x3, struct ESPTEntry)
-#define ESPT_MMIO_ENTRY _IOR(ESPTIO, 0x4, struct ESPTEntry)
-#define ESPT_PRINT_ENTRY _IOR(ESPTIO, 0x5, struct ESPTEntry)
+#define SOFTEPT_INIT _IOWR(SOFTEPTIO, 0x1, int)
+#define SOFTEPT_SET_ENTRY _IOWR(SOFTEPTIO, 0x2, struct SofteptEntry)
+#define SOFTEPT_FLUSH_ENTRY _IOWR(SOFTEPTIO, 0x3, struct SofteptEntry)
+#define SOFTEPT_MMIO_ENTRY _IOWR(SOFTEPTIO, 0x4, struct SofteptEntry)
+#define SOFTEPT_PRINT_ENTRY _IOWR(SOFTEPTIO, 0x5, struct SofteptEntry)
 
 typedef pgd_t* (*custom_pgd_alloc)(struct mm_struct *mm);
 typedef int (*custom_pud_alloc)(struct mm_struct *mm, p4d_t *p4d, unsigned long address);
@@ -31,53 +31,52 @@ custom_pmd_alloc my_pmd_alloc;
 custom_pte_alloc my_pte_alloc;
 custom_flush_tlb_all my_flush_tlb_all;
 
-pgd_t * gva_pgd, * hva_pgd;
-pud_t * gva_pud, * hva_pud;
-pmd_t * gva_pmd, * hva_pmd;
-pte_t * gva_pte, * hva_pte;
+pgd_t * gpa_pgd, * hva_pgd, *tmp_pgd;
+pud_t * gpa_pud, * hva_pud;
+pmd_t * gpa_pmd, * hva_pmd;
+pte_t * gpa_pte, * hva_pte, *tmp_pte;
 
 struct task_struct *task;
 struct mm_struct *mm;
-uint64_t gva, hva, pa_gva, pa_hva;
+uint64_t gpa, hva, pa_gpa, pa_hva;
 int pid;
 
-struct ESPTEntry{
-	union{
-		struct{
-			unsigned int gva;
-			uintptr_t hva;
-		}set_entry;
-		struct{
-			unsigned int *list;
-			int size;
-		}flush_entry;
-		struct{
-			unsigned int gva;
-			uint64_t val;
-			int add;
-		}mmio_entry;
-	};
+struct SofteptEntry{
+    union{
+        struct{
+            uint64_t gpa;
+            uintptr_t hva;
+        }set_entry;
+        struct{
+            uint64_t *list;
+            int size;
+        }flush_entry;
+        struct{
+            uint64_t gpa;
+            uint64_t val;
+            int add;
+        }mmio_entry;
+    };
 };
-
-static int espt_dev_open(struct inode *inode, struct file *filp)
+static int softept_dev_open(struct inode *inode, struct file *filp)
 {
-	printk ("espt open ok\n");
+	printk ("softept open ok\n");
 	return 0;
 }
 
-static int espt_dev_release(struct inode *inode, struct file *filp)
+static int softept_dev_release(struct inode *inode, struct file *filp)
 {
-	printk ("espt release ok\n");
+	printk ("softept release ok\n");
 	return 0;
 }
 
-static int espt_dev_mmap(struct file *file, struct vm_area_struct *vma)
+static int softept_dev_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	printk ("espt mmap ok\n");
+	printk ("softept mmap ok\n");
 	return 0;
 }
 
-static int espt_dev_ioctl_init(int pid_value)
+static int softept_dev_ioctl_init(int pid_value)
 {
 	pid = pid_value;
 	task = get_pid_task(find_get_pid(pid),PIDTYPE_PID);
@@ -85,12 +84,12 @@ static int espt_dev_ioctl_init(int pid_value)
 	return 0;
 }
 
-static int espt_dev_ioctl_set_entry(struct ESPTEntry espt_entry)
+static int softept_dev_ioctl_set_entry(struct SofteptEntry softept_entry)
 {
-	gva = espt_entry.set_entry.gva;
-	hva = espt_entry.set_entry.hva;
+	gpa = softept_entry.set_entry.gpa;
+	hva = softept_entry.set_entry.hva;
 
-	printk("espt_dev_ioctl_set_entry!, gva: %llx, hva: %llx\n", gva, hva);
+	printk("softept_dev_ioctl_set_entry!, gpa: %llx, hva: %llx\n", gpa, hva);
 
 	hva_pgd = pgd_offset(mm, hva);
 	if(!my_pud_alloc(mm, &__p4d(pgd_val(*hva_pgd)), hva)){		
@@ -100,28 +99,28 @@ static int espt_dev_ioctl_set_entry(struct ESPTEntry espt_entry)
 			if(!my_pte_alloc(mm, hva_pmd)){
 				hva_pte = pte_offset_kernel(hva_pmd, hva);
 				if(!pte_present(*hva_pte)){
-					pte_t * tmp = (pte_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
-					set_pte(hva_pte, __pte(_PAGE_TABLE | __pa(tmp)));
+					tmp_pte = (pte_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
+					set_pte(hva_pte, __pte(_PAGE_TABLE | __pa(tmp_pte)));
 				}						
 			}			
 		}
 	}
 
-	gva_pgd = pgd_offset(mm, gva);
-	if(!my_pud_alloc(mm, &__p4d(pgd_val(*gva_pgd)), gva)){
-		if(!(pgd_flags(*(gva_pgd)) & _PAGE_PRESENT)){
-			pgd_t * tmp = (pgd_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
-			set_pgd(gva_pgd, __pgd(_PAGE_TABLE | __pa(tmp)));
+	gpa_pgd = pgd_offset(mm, gpa);
+	if(!my_pud_alloc(mm, &__p4d(pgd_val(*gpa_pgd)), gpa)){
+		if(!(pgd_flags(*(gpa_pgd)) & _PAGE_PRESENT)){
+			tmp_pgd = (pgd_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
+			set_pgd(gpa_pgd, __pgd(_PAGE_TABLE | __pa(tmp_pgd)));
 		}
-		gva_pud = pud_offset(&__p4d(pgd_val(*gva_pgd)), gva);
-		if(!my_pmd_alloc(mm, gva_pud, gva));{
-			gva_pmd = pmd_offset(gva_pud, gva);
-			if(!my_pte_alloc(mm, gva_pmd)){
-				gva_pte = pte_offset_kernel(gva_pmd, gva);
-				pa_gva = (pte_pfn(*gva_pte) << PAGE_SHIFT) | (gva & ~PAGE_MASK);
+		gpa_pud = pud_offset(&__p4d(pgd_val(*gpa_pgd)), gpa);
+		if(!my_pmd_alloc(mm, gpa_pud, gpa));{
+			gpa_pmd = pmd_offset(gpa_pud, gpa);
+			if(!my_pte_alloc(mm, gpa_pmd)){
+				gpa_pte = pte_offset_kernel(gpa_pmd, gpa);
+				pa_gpa = (pte_pfn(*gpa_pte) << PAGE_SHIFT) | (gpa & ~PAGE_MASK);
 				pa_hva = (pte_pfn(*hva_pte) << PAGE_SHIFT) | (hva & ~PAGE_MASK);
 				printk("hva_value: %llx\n", *(uint64_t *)__va(pa_hva));	
-				set_pte(gva_pte, *hva_pte);
+				set_pte(gpa_pte, *hva_pte);
 			}			
 		}
 	}
@@ -130,39 +129,39 @@ static int espt_dev_ioctl_set_entry(struct ESPTEntry espt_entry)
 	return 0;
 }
 
-static int espt_dev_ioctl_flush_entry(struct ESPTEntry espt_entry)
+static int softept_dev_ioctl_flush_entry(struct SofteptEntry softept_entry)
 {
 	int i;
-	int len = espt_entry.flush_entry.size;
+	int len = softept_entry.flush_entry.size;
 	unsigned int *list = kmalloc(len * sizeof(uint64_t), GFP_KERNEL);
 
-	printk("espt_dev_ioctl_flush_entry!, len: %d\n", len);
+	printk("softept_dev_ioctl_flush_entry!, len: %d\n", len);
 
-	if (copy_from_user(list, (void *)espt_entry.flush_entry.list, espt_entry.flush_entry.size * sizeof(uint64_t))){
+	if (copy_from_user(list, (void *)softept_entry.flush_entry.list, softept_entry.flush_entry.size * sizeof(uint64_t))){
 		kfree(list);
 		return 0;
 	}
 
 	for(i = 0; i < len; i++){
-		gva = list[i];
-		printk("gva: %llx\n", gva);
-		gva_pgd = pgd_offset(mm, gva);
-		if(!my_pud_alloc(mm, &__p4d(pgd_val(*gva_pgd)), gva)){
+		gpa = list[i];
+		printk("gpa: %llx\n", gpa);
+		gpa_pgd = pgd_offset(mm, gpa);
+		if(!my_pud_alloc(mm, &__p4d(pgd_val(*gpa_pgd)), gpa)){
 			printk("pud \n");
-			if(!(pgd_flags(*(gva_pgd)) & _PAGE_PRESENT)){
+			if(!(pgd_flags(*(gpa_pgd)) & _PAGE_PRESENT)){
 				printk("pgd \n");
-				pgd_t * tmp = (pgd_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
-				set_pgd(gva_pgd, __pgd(_PAGE_TABLE | __pa(tmp)));
+				tmp_pgd = (pgd_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
+				set_pgd(gpa_pgd, __pgd(_PAGE_TABLE | __pa(tmp_pgd)));
 			}
-			gva_pud = pud_offset(&__p4d(pgd_val(*gva_pgd)), gva);
-			if(!my_pmd_alloc(mm, gva_pud, gva)){
+			gpa_pud = pud_offset(&__p4d(pgd_val(*gpa_pgd)), gpa);
+			if(!my_pmd_alloc(mm, gpa_pud, gpa)){
 				printk("pmd \n");
-				gva_pmd = pmd_offset(gva_pud, gva);
-				if(!my_pte_alloc(mm, gva_pmd)){
+				gpa_pmd = pmd_offset(gpa_pud, gpa);
+				if(!my_pte_alloc(mm, gpa_pmd)){
 					printk("pte \n");
-					gva_pte = pte_offset_kernel(gva_pmd, gva);	
-					set_pte(gva_pte, __pte(0));
-					printk("pte: %llx\n", gva_pte->pte);
+					gpa_pte = pte_offset_kernel(gpa_pmd, gpa);	
+					set_pte(gpa_pte, __pte(0));
+					printk("pte: %llx\n", gpa_pte->pte);
 				}			
 			}
 		}
@@ -172,32 +171,32 @@ static int espt_dev_ioctl_flush_entry(struct ESPTEntry espt_entry)
 	return 0;
 }
 
-static int espt_dev_ioctl_mmio_entry(struct ESPTEntry espt_entry)
+static int softept_dev_ioctl_mmio_entry(struct SofteptEntry softept_entry)
 {
-	int add = espt_entry.mmio_entry.add;
-	uint64_t value = espt_entry.mmio_entry.val;
-	gva = espt_entry.mmio_entry.gva;
+	int add = softept_entry.mmio_entry.add;
+	uint64_t value = softept_entry.mmio_entry.val;
+	gpa = softept_entry.mmio_entry.gpa;
 
-	printk("espt_dev_ioctl_mmio_entry!, add: %d, value: %lld, gva: %llx\n", add, value, gva);
+	printk("softept_dev_ioctl_mmio_entry!, add: %d, value: %llx, gpa: %llx\n", add, value, gpa);
 
-	gva_pgd = pgd_offset(mm, gva);
-	if(!my_pud_alloc(mm, &__p4d(pgd_val(*gva_pgd)), gva)){
-		if(!(pgd_flags(*(gva_pgd)) & _PAGE_PRESENT)){
-			pgd_t * tmp = (pgd_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
-			set_pgd(gva_pgd, __pgd(_PAGE_TABLE | __pa(tmp)));
+	gpa_pgd = pgd_offset(mm, gpa);
+	if(!my_pud_alloc(mm, &__p4d(pgd_val(*gpa_pgd)), gpa)){
+		if(!(pgd_flags(*(gpa_pgd)) & _PAGE_PRESENT)){
+			tmp_pgd = (pgd_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
+			set_pgd(gpa_pgd, __pgd(_PAGE_TABLE | __pa(tmp_pgd)));
 		}
-		gva_pud = pud_offset(&__p4d(pgd_val(*gva_pgd)), gva);
-		if(!my_pmd_alloc(mm, gva_pud, gva));{
-			gva_pmd = pmd_offset(gva_pud, gva);
-			if(!my_pte_alloc(mm, gva_pmd)){
-				gva_pte = pte_offset_kernel(gva_pmd, gva);
+		gpa_pud = pud_offset(&__p4d(pgd_val(*gpa_pgd)), gpa);
+		if(!my_pmd_alloc(mm, gpa_pud, gpa));{
+			gpa_pmd = pmd_offset(gpa_pud, gpa);
+			if(!my_pte_alloc(mm, gpa_pmd)){
+				gpa_pte = pte_offset_kernel(gpa_pmd, gpa);
 				if(add){
-					pte_t * tmp = (pte_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
-					set_pte(gva_pte, __pte(_PAGE_TABLE | __pa(tmp)));
-					*(uint64_t *)tmp = value;	
+					tmp_pte = (pte_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
+					set_pte(gpa_pte, __pte(_PAGE_TABLE | __pa(tmp_pte)));
+					*(uint64_t *)tmp_pte = value;	
 				}
 				else{
-					set_pte(gva_pte, __pte(0));					
+					set_pte(gpa_pte, __pte(0));					
 				}
 			}			
 		}
@@ -207,86 +206,87 @@ static int espt_dev_ioctl_mmio_entry(struct ESPTEntry espt_entry)
 	return 0;
 }
 
-static int espt_dev_ioctl_print_entry(struct ESPTEntry espt_entry)
+static int softept_dev_ioctl_print_entry(struct SofteptEntry softept_entry)
 {
-	gva = espt_entry.mmio_entry.gva;
+	gpa = softept_entry.mmio_entry.gpa;
 
-	printk("espt_dev_ioctl_print_entry!, gva: %llx\n", gva);
+	printk("softept_dev_ioctl_print_entry!, gpa: %llx\n", gpa);
 
-	gva_pgd = pgd_offset(mm, gva);
-	if(!my_pud_alloc(mm, &__p4d(pgd_val(*gva_pgd)), gva)){
+	gpa_pgd = pgd_offset(mm, gpa);
+	if(!my_pud_alloc(mm, &__p4d(pgd_val(*gpa_pgd)), gpa)){
 			printk("pud \n");
-			if(!(pgd_flags(*(gva_pgd)) & _PAGE_PRESENT)){
+			if(!(pgd_flags(*(gpa_pgd)) & _PAGE_PRESENT)){
 				printk("pgd \n");
-				pgd_t * tmp = (pgd_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
-				set_pgd(gva_pgd, __pgd(_PAGE_TABLE | __pa(tmp)));
+				tmp_pgd = (pgd_t *)get_zeroed_page(GFP_KERNEL_ACCOUNT);
+				set_pgd(gpa_pgd, __pgd(_PAGE_TABLE | __pa(tmp_pgd)));
 			}
-			gva_pud = pud_offset(&__p4d(pgd_val(*gva_pgd)), gva);
-			if(!my_pmd_alloc(mm, gva_pud, gva)){
+			gpa_pud = pud_offset(&__p4d(pgd_val(*gpa_pgd)), gpa);
+			if(!my_pmd_alloc(mm, gpa_pud, gpa)){
 				printk("pmd \n");
-				gva_pmd = pmd_offset(gva_pud, gva);
-				if(!my_pte_alloc(mm, gva_pmd)){
+				gpa_pmd = pmd_offset(gpa_pud, gpa);
+				if(!my_pte_alloc(mm, gpa_pmd)){
 					printk("pte \n");
-					gva_pte = pte_offset_kernel(gva_pmd, gva);	
-					printk("pte: %llx\n", gva_pte->pte);
+					gpa_pte = pte_offset_kernel(gpa_pmd, gpa);	
+					printk("pte: %llx\n", gpa_pte->pte);
 				}			
 			}
 		}
 	return 0;
 }
 
-static long espt_dev_ioctl(struct file *filp,
+static long softept_dev_ioctl(struct file *filp,
 			  unsigned int ioctl, unsigned long arg)
 {
-	printk("espt_dev_ioctl! %u\n", ioctl);
-	int r = -EINVAL;
+	printk("softept_dev_ioctl! %u\n", ioctl);
+	int r;
+    r = -EINVAL;
 
 	switch (ioctl) {
-	case ESPT_INIT:{
+	case SOFTEPT_INIT:{
 		int pid_value;	
 		r = -EFAULT;
 		if (copy_from_user(&pid_value, (void *)arg, sizeof(int)))
 			goto out;
-		r = espt_dev_ioctl_init(pid_value);
+		r = softept_dev_ioctl_init(pid_value);
 		if(r)
 			goto out;
 		break;
 	}
-	case ESPT_SET_ENTRY:{
-		struct ESPTEntry espt_set_entry;
+	case SOFTEPT_SET_ENTRY:{
+		struct SofteptEntry softept_set_entry;
 		r = -EFAULT;
-		if (copy_from_user(&espt_set_entry, (void *)arg, sizeof(struct ESPTEntry)))
+		if (copy_from_user(&softept_set_entry, (void *)arg, sizeof(struct SofteptEntry)))
 			goto out;
-		r = espt_dev_ioctl_set_entry(espt_set_entry);
+		r = softept_dev_ioctl_set_entry(softept_set_entry);
 		if(r)
 			goto out;
 		break;
 	}
-	case ESPT_FLUSH_ENTRY:{
-		struct ESPTEntry espt_flush_entry;
+	case SOFTEPT_FLUSH_ENTRY:{
+		struct SofteptEntry softept_flush_entry;
 		r = -EFAULT;
-		if (copy_from_user(&espt_flush_entry, (void *)arg, sizeof(struct ESPTEntry)))
+		if (copy_from_user(&softept_flush_entry, (void *)arg, sizeof(struct SofteptEntry)))
 			goto out;
-		printk("# %lx\n", espt_flush_entry.flush_entry.list);
-		r = espt_dev_ioctl_flush_entry(espt_flush_entry);
+		printk("# %lx\n", softept_flush_entry.flush_entry.list);
+		r = softept_dev_ioctl_flush_entry(softept_flush_entry);
 		if(r)
 			goto out;
 		break;
 	}
-	case ESPT_MMIO_ENTRY:{
-		struct ESPTEntry espt_mmio_entry;
+	case SOFTEPT_MMIO_ENTRY:{
+		struct SofteptEntry softept_mmio_entry;
 		r = -EFAULT;
-		if (copy_from_user(&espt_mmio_entry, (void *)arg, sizeof(struct ESPTEntry)))
+		if (copy_from_user(&softept_mmio_entry, (void *)arg, sizeof(struct SofteptEntry)))
 			goto out;
-		r = espt_dev_ioctl_mmio_entry(espt_mmio_entry);
+		r = softept_dev_ioctl_mmio_entry(softept_mmio_entry);
 		break;
 	}
-	case ESPT_PRINT_ENTRY:{
-		struct ESPTEntry espt_print_entry;
+	case SOFTEPT_PRINT_ENTRY:{
+		struct SofteptEntry softept_print_entry;
 		r = -EFAULT;
-		if (copy_from_user(&espt_print_entry, (void *)arg, sizeof(struct ESPTEntry)))
+		if (copy_from_user(&softept_print_entry, (void *)arg, sizeof(struct SofteptEntry)))
 			goto out;
-		r = espt_dev_ioctl_print_entry(espt_print_entry);
+		r = softept_dev_ioctl_print_entry(softept_print_entry);
 		break;
 	}
 	default:
@@ -296,26 +296,26 @@ out:
 	return r;
 }
 
-static struct file_operations espt_chardev_ops = {
-	.open		= espt_dev_open,
-	.release        = espt_dev_release,
-	.unlocked_ioctl = espt_dev_ioctl,
-	.compat_ioctl   = espt_dev_ioctl,
-	.mmap			= espt_dev_mmap
+static struct file_operations softept_chardev_ops = {
+	.open		    = softept_dev_open,
+	.release        = softept_dev_release,
+	.unlocked_ioctl = softept_dev_ioctl,
+	.compat_ioctl   = softept_dev_ioctl,
+	.mmap			= softept_dev_mmap
 };
 
-static struct miscdevice espt_dev = {
+static struct miscdevice softept_dev = {
 	MISC_DYNAMIC_MINOR,
-	"espt",
-	&espt_chardev_ops,
+	"softept",
+	&softept_chardev_ops,
 };
 
-int espt_init(void)
+int softept_init(void)
 {
 	int r;
-	r = misc_register(&espt_dev);
+	r = misc_register(&softept_dev);
 	if (r) {
-		printk (KERN_ERR "espt: misc device register failed\n");
+		printk (KERN_ERR "softept: misc device register failed\n");
 	}    
 
 	my_pgd_alloc = (custom_pgd_alloc)kallsyms_lookup_name("pgd_alloc");
@@ -324,15 +324,15 @@ int espt_init(void)
 	my_pte_alloc = (custom_pte_alloc)kallsyms_lookup_name("__pte_alloc");
 	my_flush_tlb_all = (custom_flush_tlb_all)kallsyms_lookup_name("flush_tlb_all");
 
-	printk("espt_init ok\n");
+	printk("softept_init ok\n");
     return 0;
 }
 
-void espt_exit(void)
+void softept_exit(void)
 {
-	misc_deregister(&espt_dev);
-    printk("espt_exit ok\n");
+	misc_deregister(&softept_dev);
+    printk("softept_exit ok\n");
 }
 
-module_init(espt_init);
-module_exit(espt_exit);
+module_init(softept_init);
+module_exit(softept_exit);
